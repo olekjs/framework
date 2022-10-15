@@ -13,6 +13,10 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Database\ConnectionResolverInterface as Resolver;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Casts\ArrayObject;
+use Illuminate\Database\Eloquent\Casts\AsArrayObject;
+use Illuminate\Database\Eloquent\Casts\AsCollection;
+use Illuminate\Database\Eloquent\Casts\AsStringable;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\JsonEncodingException;
 use Illuminate\Database\Eloquent\MassAssignmentException;
@@ -25,6 +29,8 @@ use Illuminate\Database\Query\Processors\Processor;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection as BaseCollection;
 use Illuminate\Support\InteractsWithTime;
+use Illuminate\Support\Str;
+use Illuminate\Support\Stringable;
 use InvalidArgumentException;
 use LogicException;
 use Mockery as m;
@@ -153,6 +159,60 @@ class DatabaseEloquentModelTest extends TestCase
         $this->assertFalse($model->isDirty());
         $this->assertFalse($model->isDirty('objectAttribute'));
         $this->assertFalse($model->isDirty('collectionAttribute'));
+    }
+
+    public function testDirtyOnCastedArrayObject()
+    {
+        $model = new EloquentModelCastingStub;
+        $model->setRawAttributes([
+            'asarrayobjectAttribute' => '{"foo": "bar"}',
+        ]);
+        $model->syncOriginal();
+
+        $this->assertInstanceOf(ArrayObject::class, $model->asarrayobjectAttribute);
+        $this->assertFalse($model->isDirty('asarrayobjectAttribute'));
+
+        $model->asarrayobjectAttribute = ['foo' => 'bar'];
+        $this->assertFalse($model->isDirty('asarrayobjectAttribute'));
+
+        $model->asarrayobjectAttribute = ['foo' => 'baz'];
+        $this->assertTrue($model->isDirty('asarrayobjectAttribute'));
+    }
+
+    public function testDirtyOnCastedCollection()
+    {
+        $model = new EloquentModelCastingStub;
+        $model->setRawAttributes([
+            'ascollectionAttribute' => '{"foo": "bar"}',
+        ]);
+        $model->syncOriginal();
+
+        $this->assertInstanceOf(BaseCollection::class, $model->ascollectionAttribute);
+        $this->assertFalse($model->isDirty('ascollectionAttribute'));
+
+        $model->ascollectionAttribute = ['foo' => 'bar'];
+        $this->assertFalse($model->isDirty('ascollectionAttribute'));
+
+        $model->ascollectionAttribute = ['foo' => 'baz'];
+        $this->assertTrue($model->isDirty('ascollectionAttribute'));
+    }
+
+    public function testDirtyOnCastedStringable()
+    {
+        $model = new EloquentModelCastingStub;
+        $model->setRawAttributes([
+            'asStringableAttribute' => 'foo bar',
+        ]);
+        $model->syncOriginal();
+
+        $this->assertInstanceOf(Stringable::class, $model->asStringableAttribute);
+        $this->assertFalse($model->isDirty('asStringableAttribute'));
+
+        $model->asStringableAttribute = Str::of('foo bar');
+        $this->assertFalse($model->isDirty('asStringableAttribute'));
+
+        $model->asStringableAttribute = Str::of('foo baz');
+        $this->assertTrue($model->isDirty('asStringableAttribute'));
     }
 
     public function testCleanAttributes()
@@ -2093,6 +2153,7 @@ class DatabaseEloquentModelTest extends TestCase
         $model->setConnectionResolver($resolver = m::mock(ConnectionResolverInterface::class));
         $resolver->shouldReceive('connection')->andReturn($connection = m::mock(Connection::class));
         $connection->shouldReceive('getQueryGrammar')->andReturn($grammar = m::mock(Grammar::class));
+        $grammar->shouldReceive('getBitwiseOperators')->andReturn([]);
         $connection->shouldReceive('getPostProcessor')->andReturn($processor = m::mock(Processor::class));
         $connection->shouldReceive('query')->andReturnUsing(function () use ($connection, $grammar, $processor) {
             return new BaseBuilder($connection, $grammar, $processor);
@@ -2380,6 +2441,7 @@ class EloquentModelSaveStub extends Model
     {
         $mock = m::mock(Connection::class);
         $mock->shouldReceive('getQueryGrammar')->andReturn($grammar = m::mock(Grammar::class));
+        $grammar->shouldReceive('getBitwiseOperators')->andReturn([]);
         $mock->shouldReceive('getPostProcessor')->andReturn($processor = m::mock(Processor::class));
         $mock->shouldReceive('getName')->andReturn('name');
         $mock->shouldReceive('query')->andReturnUsing(function () use ($mock, $grammar, $processor) {
@@ -2570,6 +2632,9 @@ class EloquentModelCastingStub extends Model
         'dateAttribute' => 'date',
         'datetimeAttribute' => 'datetime',
         'timestampAttribute' => 'timestamp',
+        'asarrayobjectAttribute' => AsArrayObject::class,
+        'ascollectionAttribute' => AsCollection::class,
+        'asStringableAttribute' => AsStringable::class,
     ];
 
     public function jsonAttributeValue()

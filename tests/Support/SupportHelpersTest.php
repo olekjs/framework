@@ -552,7 +552,7 @@ class SupportHelpersTest extends TestCase
         $this->assertEquals(2, $attempts);
 
         // Make sure we waited 100ms for the first attempt
-        $this->assertEqualsWithDelta(0.1, microtime(true) - $startTime, 0.02);
+        $this->assertEqualsWithDelta(0.1, microtime(true) - $startTime, 0.03);
     }
 
     public function testRetryWithPassingSleepCallback()
@@ -573,7 +573,7 @@ class SupportHelpersTest extends TestCase
         $this->assertEquals(3, $attempts);
 
         // Make sure we waited 300ms for the first two attempts
-        $this->assertEqualsWithDelta(0.3, microtime(true) - $startTime, 0.02);
+        $this->assertEqualsWithDelta(0.3, microtime(true) - $startTime, 0.03);
     }
 
     public function testRetryWithPassingWhenCallback()
@@ -594,7 +594,7 @@ class SupportHelpersTest extends TestCase
         $this->assertEquals(2, $attempts);
 
         // Make sure we waited 100ms for the first attempt
-        $this->assertEqualsWithDelta(0.1, microtime(true) - $startTime, 0.02);
+        $this->assertEqualsWithDelta(0.1, microtime(true) - $startTime, 0.03);
     }
 
     public function testRetryWithFailingWhenCallback()
@@ -744,7 +744,9 @@ class SupportHelpersTest extends TestCase
         ];
     }
 
-    /** @dataProvider providesPregReplaceArrayData */
+    /**
+     * @dataProvider providesPregReplaceArrayData
+     */
     public function testPregReplaceArray($pattern, $replacements, $subject, $expectedOutput)
     {
         $this->assertSame(
@@ -793,22 +795,23 @@ class SupportTestArrayAccess implements ArrayAccess
         $this->attributes = $attributes;
     }
 
-    public function offsetExists($offset)
+    public function offsetExists($offset): bool
     {
         return array_key_exists($offset, $this->attributes);
     }
 
+    #[\ReturnTypeWillChange]
     public function offsetGet($offset)
     {
         return $this->attributes[$offset];
     }
 
-    public function offsetSet($offset, $value)
+    public function offsetSet($offset, $value): void
     {
         $this->attributes[$offset] = $value;
     }
 
-    public function offsetUnset($offset)
+    public function offsetUnset($offset): void
     {
         unset($this->attributes[$offset]);
     }

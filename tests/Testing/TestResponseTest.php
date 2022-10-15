@@ -9,13 +9,14 @@ use Illuminate\Cookie\CookieValuePrefix;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Filesystem\Filesystem;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Response;
+use Illuminate\Session\ArraySessionHandler;
+use Illuminate\Session\Store;
+use Illuminate\Support\MessageBag;
+use Illuminate\Support\ViewErrorBag;
 use Illuminate\Testing\Fluent\AssertableJson;
 use Illuminate\Testing\TestResponse;
-use Illuminate\Translation\ArrayLoader;
-use Illuminate\Translation\Translator;
-use Illuminate\Validation\Factory as ValidationFactory;
-use Illuminate\Validation\ValidationException;
 use JsonSerializable;
 use Mockery as m;
 use PHPUnit\Framework\AssertionFailedError;
@@ -398,7 +399,7 @@ class TestResponseTest extends TestCase
 
         $this->expectException(AssertionFailedError::class);
 
-        $this->expectExceptionMessage('Expected status code');
+        $this->expectExceptionMessage('Expected response status code');
 
         $baseResponse = tap(new Response, function ($response) use ($statusCode) {
             $response->setStatusCode($statusCode);
@@ -414,7 +415,7 @@ class TestResponseTest extends TestCase
 
         $this->expectException(AssertionFailedError::class);
 
-        $this->expectExceptionMessage('Expected status code');
+        $this->expectExceptionMessage('Expected response status code');
 
         $baseResponse = tap(new Response, function ($response) use ($statusCode) {
             $response->setStatusCode($statusCode);
@@ -429,7 +430,7 @@ class TestResponseTest extends TestCase
         $statusCode = 500;
 
         $this->expectException(AssertionFailedError::class);
-        $this->expectExceptionMessage('Expected status code');
+        $this->expectExceptionMessage('Expected response status code');
 
         $baseResponse = tap(new Response, function ($response) use ($statusCode) {
             $response->setStatusCode($statusCode);
@@ -445,7 +446,7 @@ class TestResponseTest extends TestCase
 
         $this->expectException(AssertionFailedError::class);
 
-        $this->expectExceptionMessage('Expected status code');
+        $this->expectExceptionMessage('Expected response status code');
 
         $baseResponse = tap(new Response, function ($response) use ($statusCode) {
             $response->setStatusCode($statusCode);
@@ -461,7 +462,7 @@ class TestResponseTest extends TestCase
 
         $this->expectException(AssertionFailedError::class);
 
-        $this->expectExceptionMessage('Expected status code');
+        $this->expectExceptionMessage('Expected response status code');
 
         $baseResponse = tap(new Response, function ($response) use ($statusCode) {
             $response->setStatusCode($statusCode);
@@ -471,13 +472,29 @@ class TestResponseTest extends TestCase
         $response->assertUnauthorized();
     }
 
+    public function testAssertUnprocessable()
+    {
+        $statusCode = 500;
+
+        $this->expectException(AssertionFailedError::class);
+
+        $this->expectExceptionMessage('Expected response status code');
+
+        $baseResponse = tap(new Response, function ($response) use ($statusCode) {
+            $response->setStatusCode($statusCode);
+        });
+
+        $response = TestResponse::fromBaseResponse($baseResponse);
+        $response->assertUnprocessable();
+    }
+
     public function testAssertNoContentAsserts204StatusCodeByDefault()
     {
         $statusCode = 500;
 
         $this->expectException(AssertionFailedError::class);
 
-        $this->expectExceptionMessage('Expected status code');
+        $this->expectExceptionMessage('Expected response status code');
 
         $baseResponse = tap(new Response, function ($response) use ($statusCode) {
             $response->setStatusCode($statusCode);
@@ -494,7 +511,7 @@ class TestResponseTest extends TestCase
 
         $this->expectException(AssertionFailedError::class);
 
-        $this->expectExceptionMessage('Expected status code');
+        $this->expectExceptionMessage('Expected response status code');
 
         $baseResponse = tap(new Response, function ($response) use ($statusCode) {
             $response->setStatusCode($statusCode);
@@ -526,7 +543,7 @@ class TestResponseTest extends TestCase
 
         $this->expectException(AssertionFailedError::class);
 
-        $this->expectExceptionMessage('Expected status code');
+        $this->expectExceptionMessage('Expected response status code');
 
         $baseResponse = tap(new Response, function ($response) use ($statusCode) {
             $response->setStatusCode($statusCode);
@@ -555,32 +572,28 @@ class TestResponseTest extends TestCase
         $response->assertStatus($expectedStatusCode);
     }
 
-    public function testAssertStatusShowsValidationErrorsOnUnexpected422()
+    public function testAssertStatusShowsErrorsOnUnexpectedErrorRedirect()
     {
-        $statusCode = 422;
+        $statusCode = 302;
         $expectedStatusCode = 200;
 
         $this->expectException(AssertionFailedError::class);
 
         $this->expectExceptionMessage('The first name field is required.');
 
-        $baseResponse = tap(new Response, function ($response) use ($statusCode) {
-            $response->setStatusCode($statusCode);
+        $baseResponse = tap(new RedirectResponse('/', $statusCode), function ($response) {
+            $response->setSession(new Store('test-session', new ArraySessionHandler(1)));
+            $response->withErrors([
+                'first_name' => 'The first name field is required.',
+                'last_name' => 'The last name field is required.',
+            ]);
         });
-        $translator = new Translator(new ArrayLoader, 'en');
-        $validator = (new ValidationFactory($translator))->make(
-            [],
-            ['first_name' => 'required', 'last_name' => 'required'],
-            ['required' => 'The :attribute field is required.']
-        );
-        $exceptions = collect([new ValidationException($validator)]);
 
-        $response = TestResponse::fromBaseResponse($baseResponse)
-            ->withExceptions($exceptions);
+        $response = TestResponse::fromBaseResponse($baseResponse);
         $response->assertStatus($expectedStatusCode);
     }
 
-    public function testAssertStatusShowsJsonValidationErrorsOnUnexpected422()
+    public function testAssertStatusShowsJsonErrorsOnUnexpected422()
     {
         $statusCode = 422;
         $expectedStatusCode = 200;
@@ -589,20 +602,39 @@ class TestResponseTest extends TestCase
 
         $this->expectExceptionMessage('"The first name field is required."');
 
-        $baseResponse = tap(new Response, function ($response) use ($statusCode) {
-            $response->setStatusCode($statusCode);
-            $response->header('Content-Type', 'application/json');
-        });
-        $translator = new Translator(new ArrayLoader, 'en');
-        $validator = (new ValidationFactory($translator))->make(
-            [],
-            ['first_name' => 'required', 'last_name' => 'required'],
-            ['required' => 'The :attribute field is required.']
+        $baseResponse = new Response(
+            [
+                'message' => 'The given data was invalid.',
+                'errors' => [
+                    'first_name' => 'The first name field is required.',
+                    'last_name' => 'The last name field is required.',
+                ],
+            ],
+            $statusCode
         );
-        $exceptions = collect([new ValidationException($validator)]);
 
-        $response = TestResponse::fromBaseResponse($baseResponse)->withExceptions($exceptions);
+        $response = TestResponse::fromBaseResponse($baseResponse);
         $response->assertStatus($expectedStatusCode);
+    }
+
+    public function testAssertStatusWhenJsonIsFalse()
+    {
+        $baseResponse = new Response('false', 200, ['Content-Type' => 'application/json']);
+
+        $response = TestResponse::fromBaseResponse($baseResponse);
+        $response->assertStatus(200);
+    }
+
+    public function testAssertStatusWhenJsonIsEncoded()
+    {
+        $baseResponse = tap(new Response, function ($response) {
+            $response->header('Content-Type', 'application/json');
+            $response->header('Content-Encoding', 'gzip');
+            $response->setContent('b"x£½V*.I,)-V▓R╩¤V¬\x05\x00+ü\x059"');
+        });
+
+        $response = TestResponse::fromBaseResponse($baseResponse);
+        $response->assertStatus(200);
     }
 
     public function testAssertHeader()
@@ -683,6 +715,29 @@ class TestResponseTest extends TestCase
 
         $response->assertJson(function (AssertableJson $json) {
             //
+        });
+    }
+
+    public function testAssertJsonWithFluentHasAnyThrows()
+    {
+        $response = TestResponse::fromBaseResponse(new Response([]));
+
+        $this->expectException(AssertionFailedError::class);
+        $this->expectExceptionMessage('None of properties [data, errors, meta] exist.');
+
+        $response->assertJson(function (AssertableJson $json) {
+            $json->hasAny('data', 'errors', 'meta');
+        });
+    }
+
+    public function testAssertJsonWithFluentHasAnyPasses()
+    {
+        $response = TestResponse::fromBaseResponse(new Response([
+            'data' => [],
+        ]));
+
+        $response->assertJson(function (AssertableJson $json) {
+            $json->hasAny('data', 'errors', 'meta');
         });
     }
 
@@ -902,6 +957,59 @@ class TestResponseTest extends TestCase
         $testResponse->assertJsonValidationErrors('foo');
     }
 
+    public function testAssertJsonValidationErrorsUsingAssertInvalid()
+    {
+        $data = [
+            'status' => 'ok',
+            'errors' => ['foo' => 'oops'],
+        ];
+
+        $testResponse = TestResponse::fromBaseResponse(
+            (new Response('', 200, ['Content-Type' => 'application/json']))->setContent(json_encode($data))
+        );
+
+        $testResponse->assertInvalid('foo');
+    }
+
+    public function testAssertSessionValidationErrorsUsingAssertInvalid()
+    {
+        app()->instance('session.store', $store = new Store('test-session', new ArraySessionHandler(1)));
+
+        $store->put('errors', $errorBag = new ViewErrorBag);
+
+        $errorBag->put('default', new MessageBag([
+            'first_name' => [
+                'Your first name is required',
+                'Your first name must be at least 1 character',
+            ],
+        ]));
+
+        $testResponse = TestResponse::fromBaseResponse(new Response);
+
+        $testResponse->assertValid('last_name');
+        $testResponse->assertValid(['last_name']);
+
+        $testResponse->assertInvalid();
+        $testResponse->assertInvalid('first_name');
+        $testResponse->assertInvalid(['first_name']);
+        $testResponse->assertInvalid(['first_name' => 'required']);
+        $testResponse->assertInvalid(['first_name' => 'character']);
+    }
+
+    public function testAssertSessionValidationErrorsUsingAssertValid()
+    {
+        app()->instance('session.store', $store = new Store('test-session', new ArraySessionHandler(1)));
+
+        $store->put('errors', $errorBag = new ViewErrorBag);
+
+        $errorBag->put('default', new MessageBag([
+        ]));
+
+        $testResponse = TestResponse::fromBaseResponse(new Response);
+
+        $testResponse->assertValid();
+    }
+
     public function testAssertJsonValidationErrorsCustomErrorsName()
     {
         $data = [
@@ -1102,6 +1210,45 @@ class TestResponseTest extends TestCase
         );
 
         $testResponse->assertJsonValidationErrors(['one' => 'taylor', 'otwell']);
+    }
+
+    public function testAssertJsonValidationErrorMessagesMultipleErrors()
+    {
+        $data = [
+            'status' => 'ok',
+            'errors' => [
+                'one' => [
+                    'First error message.',
+                    'Second error message.',
+                ],
+            ],
+        ];
+
+        $testResponse = TestResponse::fromBaseResponse(
+            (new Response)->setContent(json_encode($data))
+        );
+
+        $testResponse->assertJsonValidationErrors(['one' => ['First error message.', 'Second error message.']]);
+    }
+
+    public function testAssertJsonValidationErrorMessagesMultipleErrorsCanFail()
+    {
+        $this->expectException(AssertionFailedError::class);
+
+        $data = [
+            'status' => 'ok',
+            'errors' => [
+                'one' => [
+                    'First error message.',
+                ],
+            ],
+        ];
+
+        $testResponse = TestResponse::fromBaseResponse(
+            (new Response)->setContent(json_encode($data))
+        );
+
+        $testResponse->assertJsonValidationErrors(['one' => ['First error message.', 'Second error message.']]);
     }
 
     public function testAssertJsonMissingValidationErrors()
@@ -1321,6 +1468,21 @@ class TestResponseTest extends TestCase
         $files->deleteDirectory($tempDir);
     }
 
+    public function testAssertDownloadOfferedWithAFileNameWithSpacesInIt()
+    {
+        $files = new Filesystem;
+        $tempDir = __DIR__.'/tmp';
+        $files->makeDirectory($tempDir, 0755, false, true);
+        $files->put($tempDir.'/file.txt', 'Hello World');
+        $testResponse = TestResponse::fromBaseResponse(new Response(
+            $files->get($tempDir.'/file.txt'), 200, [
+                'Content-Disposition' => 'attachment; filename = "test file.txt"',
+            ]
+        ));
+        $testResponse->assertDownload('test file.txt');
+        $files->deleteDirectory($tempDir);
+    }
+
     public function testMacroable()
     {
         TestResponse::macro('foo', function () {
@@ -1441,6 +1603,19 @@ class TestResponseTest extends TestCase
         $response = TestResponse::fromBaseResponse(new Response);
 
         $response->assertCookieMissing('cookie-name');
+    }
+
+    public function testAssertRedirectContains()
+    {
+        $response = TestResponse::fromBaseResponse(
+            (new Response('', 302))->withHeaders(['Location' => 'https://url.com'])
+        );
+
+        $response->assertRedirectContains('url.com');
+
+        $this->expectException(ExpectationFailedException::class);
+
+        $response->assertRedirectContains('url.net');
     }
 
     private function makeMockResponse($content)

@@ -113,6 +113,30 @@ class SupportArrTest extends TestCase
         $this->assertEquals(['name' => 'taylor', 'languages.php' => true], $array);
     }
 
+    public function testUndot()
+    {
+        $array = Arr::undot([
+            'user.name' => 'Taylor',
+            'user.age' => 25,
+            'user.languages.0' => 'PHP',
+            'user.languages.1' => 'C#',
+        ]);
+        $this->assertEquals(['user' => ['name' => 'Taylor', 'age' => 25, 'languages' => ['PHP', 'C#']]], $array);
+
+        $array = Arr::undot([
+            'pagination.previous' => '<<',
+            'pagination.next' => '>>',
+        ]);
+        $this->assertEquals(['pagination' => ['previous' => '<<', 'next' => '>>']], $array);
+
+        $array = Arr::undot([
+            'foo',
+            'foo.bar' => 'baz',
+            'foo.baz' => ['a' => 'b'],
+        ]);
+        $this->assertEquals(['foo', 'foo' => ['bar' => 'baz', 'baz' => ['a' => 'b']]], $array);
+    }
+
     public function testExcept()
     {
         $array = ['name' => 'taylor', 'age' => 26];
@@ -137,6 +161,12 @@ class SupportArrTest extends TestCase
         $this->assertFalse(Arr::exists([null], 1));
         $this->assertFalse(Arr::exists(['a' => 1], 0));
         $this->assertFalse(Arr::exists(new Collection(['a' => null]), 'b'));
+    }
+
+    public function testWhereNotNull()
+    {
+        $array = array_values(Arr::whereNotNull([null, 0, false, '', null, []]));
+        $this->assertEquals([0, false, '', []], $array);
     }
 
     public function testFirst()
@@ -424,6 +454,22 @@ class SupportArrTest extends TestCase
         $this->assertFalse(Arr::isAssoc(['a', 'b']));
     }
 
+    public function testIsList()
+    {
+        $this->assertTrue(Arr::isList([]));
+        $this->assertTrue(Arr::isList([1, 2, 3]));
+        $this->assertTrue(Arr::isList(['foo', 2, 3]));
+        $this->assertTrue(Arr::isList(['foo', 'bar']));
+        $this->assertTrue(Arr::isList([0 => 'foo', 'bar']));
+        $this->assertTrue(Arr::isList([0 => 'foo', 1 => 'bar']));
+
+        $this->assertFalse(Arr::isList([1 => 'foo', 'bar']));
+        $this->assertFalse(Arr::isList([1 => 'foo', 0 => 'bar']));
+        $this->assertFalse(Arr::isList([0 => 'foo', 'bar' => 'baz']));
+        $this->assertFalse(Arr::isList([0 => 'foo', 2 => 'bar']));
+        $this->assertFalse(Arr::isList(['foo' => 'bar', 'baz' => 'qux']));
+    }
+
     public function testOnly()
     {
         $array = ['name' => 'Desk', 'price' => 100, 'orders' => 10];
@@ -574,19 +620,25 @@ class SupportArrTest extends TestCase
         $array = ['name' => 'Desk', 'price' => 100];
         $name = Arr::pull($array, 'name');
         $this->assertSame('Desk', $name);
-        $this->assertEquals(['price' => 100], $array);
+        $this->assertSame(['price' => 100], $array);
 
         // Only works on first level keys
         $array = ['joe@example.com' => 'Joe', 'jane@localhost' => 'Jane'];
         $name = Arr::pull($array, 'joe@example.com');
         $this->assertSame('Joe', $name);
-        $this->assertEquals(['jane@localhost' => 'Jane'], $array);
+        $this->assertSame(['jane@localhost' => 'Jane'], $array);
 
         // Does not work for nested keys
         $array = ['emails' => ['joe@example.com' => 'Joe', 'jane@localhost' => 'Jane']];
         $name = Arr::pull($array, 'emails.joe@example.com');
         $this->assertNull($name);
-        $this->assertEquals(['emails' => ['joe@example.com' => 'Joe', 'jane@localhost' => 'Jane']], $array);
+        $this->assertSame(['emails' => ['joe@example.com' => 'Joe', 'jane@localhost' => 'Jane']], $array);
+
+        // Works with int keys
+        $array = ['First', 'Second'];
+        $first = Arr::pull($array, 0);
+        $this->assertSame('First', $first);
+        $this->assertSame([1 => 'Second'], $array);
     }
 
     public function testQuery()
